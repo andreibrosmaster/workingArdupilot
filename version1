@@ -110,7 +110,7 @@ end
 function updateRangefinder()
   while true do
     local water_depth = rangefinder:distance_cm_orient(25)
-    gcs:send_text(2, string.format("Depth Warning: %0.1f meters", water_depth))
+    gcs:send_text(2, string.format("Distance Calculated: %0.1f meters", water_depth))
     vehicle:sleep(5000) -- Sleep for 5 seconds before updating again
   end
 end
