@@ -1,0 +1,133 @@
+-- This script stabilizes a prototype boat on foil using a rangefinder sensor and a Lua script.
+-- The sensor is connected to an Arduino, and the Lua script will be running on the Mission Planner.
+
+-- Define the parameters
+local speed_min = 1.6
+local take_off_distance = 20
+local iter_average_max = 1000
+local iter_correction_max = 1000
+local distance_min = 20
+local distance_max = 60
+local throttle_variation = 0.1
+
+-- Define the variables
+local correction = "No"
+local throttle_ini = 0
+local throttle = 0
+local iter_average = 0
+local total_distance = 0
+local iter_correction = 0
+
+-- Initialize the rangefinder
+local rangefinder = vehicle:get_component("rangefinder")
+
+-- Function to reset the correction variables
+function resetCorrection()
+  correction = "No"
+  throttle = throttle_ini
+  iter_correction = 0
+end
+
+-- Function to log a message to a file
+function logToFile(message)
+  local file = io.open("log.txt", "a")  -- Open or create a file called "log.txt" in append mode ("a")
+  
+  if file then
+    file:write(os.date("[%Y-%m-%d %H:%M:%S] ") .. message .. "\n")  -- Write the message with a timestamp
+    file:close()  -- Close the file
+  else
+    gcs:send_text(6, "Error opening log file")  -- Send an error message if file open fails
+  end
+end
+
+-- Function to stabilize the altitude
+function stabilizeAltitude()
+  -- Check if rangefinder has data
+  if not rangefinder or not rangefinder:has_data() then
+    gcs:send_text(6, "No RangeFinder")
+    return false
+  end
+
+  -- Get sensor data
+  local instant_distance = rangefinder:get_distance()
+  
+  if instant_distance then
+    local flight_mode = vehicle:get_mode()
+    local speed = vehicle:get_ground_speed()
+
+    if flight_mode ~= "MANUAL" and speed > speed_min and instant_distance > take_off_distance then
+
+      if correction == "No" then -- No correction
+        iter_average = iter_average + 1
+        total_distance = total_distance + instant_distance
+
+        if iter_average == iter_average_max then
+          local avg_distance = total_distance / iter_average_max
+
+          if avg_distance <= distance_min then
+            correction = "Up"  
+            throttle_ini = throttle
+            throttle = throttle + (throttle_variation * throttle_ini)
+      
+          elseif avg_distance >= distance_max then
+            correction = "Down"
+            throttle_ini = throttle 
+            throttle = throttle - (throttle_variation * throttle_ini)
+      
+          end
+
+          logToFile("Cycle end. Corr: " .. correction .. " AvgDist: " .. avg_distance .. " Speed: " .. speed .. " Throttle: " .. throttle)
+
+          iter_average = 0  
+        end
+
+      else -- Correction in progress
+        iter_correction = iter_correction + 1
+
+        if instant_distance > distance_min and instant_distance < distance_max then
+          resetCorrection()
+
+          logToFile("Corr complete. Dist: " .. instant_distance .. " Speed: " .. speed .. " Throttle: " .. throttle)
+        end
+
+        if iter_correction == iter_correction_max then
+          resetCorrection()
+
+           logToFile("Corr failed. Dist: " .. instant_distance .. " Speed: " .. speed .. " Throttle: " .. throttle)
+        end
+      end
+
+    else
+      resetCorrection()
+    end
+
+  else
+    resetCorrection()
+  end
+end
+
+-- Function to update the rangefinder data and send depth warnings
+function updateRangefinder()
+  while true do
+    local water_depth = rangefinder:distance_cm_orient(25)
+    gcs:send_text(2, string.format("Depth Warning: %0.1f meters", water_depth))
+    vehicle:sleep(5000) -- Sleep for 5 seconds before updating again
+  end
+end
+
+-- Start the rangefinder update loop in parallel with altitude stabilization
+parallel.run(updateRangefinder)
+
+-- Start the altitude stabilization mission
+function startMission()
+  if not init() then
+    return -- Exit the mission if initialization fails
+  end
+
+  while true do
+    stabilizeAltitude()
+    vehicle:sleep(1)
+  end
+end
+
+startMission()
