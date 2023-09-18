@@ -1,0 +1,100 @@
+-- This script stabilizes a prototype boat on foil using a rangefinder sensor and a Lua script.
+-- The sensor is connected to an Arduino, and the Lua script will be running on the Mission Planner.
+
+-- Define the parameters
+local speed_min = 1.6
+local take_off_distance = 20
+local iter_average_max = 1000
+local iter_correction_max = 1000
+local distance_min = 20
+local distance_max = 60
+local throttle_variation = 0.1
+
+-- Define the variables
+local correction = "No"
+local throttle_ini = 0
+local throttle = 0
+local iter_average = 0
+local total_distance = 0
+local iter_correction = 0
+
+-- Updated Function to get the rangefinder data
+function vehicle:get_rangefinder()
+  -- Get the rangefinder distance using updated method
+  local rangefinder_distance = rangefinder:distance_cm_orient(25)
+
+  -- If the rangefinder distance is greater than 0, return the distance
+  if rangefinder_distance > 0 then
+    -- Log depth warning
+    gcs:send_text(2, string.format("Depth Warning: %0.1f meters", rangefinder_distance))
+    
+    return rangefinder_distance
+  end
+
+  -- Otherwise, return nil
+  return nil
+end
+
+-- Function to reset the correction variables
+function resetCorrection()
+  correction = "No"
+  throttle = throttle_ini
+  iter_correction = 0
+end
+
+-- Function to log a message to a file
+function logToFile(message)
+  local file = io.open("log.txt", "a")  -- Open or create a file called "log.txt" in append mode ("a")
+  
+  if file then
+    file:write(os.date("[%Y-%m-%d %H:%M:%S] ") .. message .. "\n")  -- Write the message with a timestamp
+    file:close()  -- Close the file
+  else
+    gcs:send_text(6, "Error opening log file")  -- Send an error message if file open fails
+  end
+end
+
+-- Function to stabilize the altitude
+function stabilizeAltitude()
+  -- Check if rangefinder has data
+  if not vehicle:get_rangefinder() then
+    gcs:send_text(6, "No RangeFinder")
+    return false
+  end
+
+  -- Get sensor data
+  local instant_distance = vehicle:get_rangefinder()
+  
+  if instant_distance then
+    local flight_mode = vehicle:get_mode()
+    local speed = vehicle:get_ground_speed()
+
+    if flight_mode ~= "MANUAL" and speed > speed_min and instant_distance > take_off_distance then
+
+      -- Existing code...
+   
+    else
+      resetCorrection()
+    end
+
+  else
+    resetCorrection()
+  end
+end
+
+-- Start Mission function
+function startMission()
+  if not init() then
+    return -- Exit the mission if initialization fails
+  end
+
+  -- Update loop
+  while true do
+    stabilizeAltitude()
+    vehicle:sleep(1)
+    vehicle.update, 5000 -- Run update loop every 5 seconds
+  end
+end
+
+-- Start the mission
+startMission()
