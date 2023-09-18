@@ -26,7 +26,7 @@ function vehicle:get_rangefinder()
   -- If the rangefinder distance is greater than 0, return the distance
   if rangefinder_distance > 0 then
     -- Log depth warning
-    gcs:send_text(2, string.format("Depth Warning: %0.1f meters", rangefinder_distance))
+    gcs:send_text(2, string.format("Distance Calculated: %0.1f meters", rangefinder_distance))
     
     return rangefinder_distance
   end
